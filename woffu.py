@@ -16,18 +16,24 @@ class Woffu_Requests:
     documents_download = '/documents/[DOCUMENT]/download'
     users = '/users'
     user = '/users/[USER]'
+    user_attributes = '/users/[USER]/attributes'
+    user_skills = '/users/[USER]/skills'
     companies = '/companies/[COMPANY]/locations'
     company = '/companies/company-details/[COMPANY]'
     schedule = '/schedules/[SCHEDULE]'
     jobtitles = '/jobtitles/[JOBTITLE]'
+    departments = '/departments/[DEPARTMENT]'
+    offices = '/offices/[OFFICE]'
+    user_contract = '/users/{id}/contracts/current'
    
 class Woffu:
     
-    def __init__(self, config_endpoint, config_key, config_proxies=None, config_debug=False):
-        self.base = config_endpoint
-        self.key = config_key
+    def __init__(self, wconfig, config_debug=False, config_proxies=None):
+        self.base = wconfig['wu']
+        self.key = wconfig['wk']
         self.proxies = config_proxies
         self.debug = config_debug
+        self.wcompanies = wconfig['wcid']
         self.companies = dict()
            
     def getParamAPI(key, alone=True):
@@ -53,6 +59,7 @@ class Woffu:
                 # Case it is a file, return mime and content
                 d = dict()
                 d['mime'] = response.headers['Content-Type']
+                d['length'] = response.headers['Content-Length']
                 d['content'] = response.content
                 return d
         else:
@@ -101,8 +108,16 @@ class Woffu:
             
         return results[0].value    
     
-    def getUsers(self):
+    def getAllUsers(self):
+        allusers = list()
+        for c in self.wcompanies:
+            allusers.append(self.getUsers(c))
+        return [','.join(allusers)]
+    
+    def getUsers(self, company = None):
         request = self.base + Woffu_Requests.users
+        if (company):
+            request += helper.doDict2QueryString({'companyId': company})
         users = self.doCurlAPI(request, None)
         if users is not None:
             if (self.debug):
@@ -199,12 +214,21 @@ class Woffu:
                     helper.dump_json(response)
         return response      
     
+    def getAllRequests(self, params=None):
+        allrequests = list()
+        for c in self.wcompanies:
+            params.update({'companyId' : c})
+            allrequests.append(self.getRequests(params))
+        return [','.join(allrequests)]
+    
     def getRequests(self, params=None):
         request = self.base + Woffu_Requests.requests +'?'
-        if params is None:
-            request += helper.doDict2QueryString({'fromDate': helper.getDateFrom(1)})
-        else:
-            request += helper.doDict2QueryString({'fromDate': params})
+        if params['fromDate'] is None:
+            params.update({'fromDate': helper.getDateFrom(1)})         
+        request += helper.doDict2QueryString(params)
+        #    request += helper.doDict2QueryString({'fromDate': helper.getDateFrom(1)})
+        #else:
+        #    request += helper.doDict2QueryString({'fromDate': params})
         response = self.doCurlAPI(request, None)
         if response is not None:
             if (self.debug):
@@ -234,3 +258,64 @@ class Woffu:
                 if (self.debug):
                     helper.dump_json(response)
         return response    
+
+    def getDepartment(self, department_id):
+        url = self.base + Woffu_Requests.departments
+        
+        print(">>Department: {}".format(department_id))
+        request = url.replace('[DEPARTMENT]',str(department_id))
+        response = self.doCurlAPI(request, None)
+            
+        if response is not None:
+                if (self.debug):
+                    helper.dump_json(response)
+        return response 
+    
+    def getOffice(self, office_id):
+        url = self.base + Woffu_Requests.offices
+        
+        print(">>Office: {}".format(office_id))
+        request = url.replace('[OFFICE]',str(office_id))
+        response = self.doCurlAPI(request, None)
+            
+        if response is not None:
+                if (self.debug):
+                    helper.dump_json(response)
+        return response   
+    
+    def getUserAttributes(self, user_id):
+        url = self.base + Woffu_Requests.user_attributes
+        
+        print(">>User Attributes: {}".format(user_id))
+        request = url.replace('[USER]',str(user_id))
+        response = self.doCurlAPI(request, None)
+            
+        if response is not None:
+                if (self.debug):
+                    helper.dump_json(response)
+        return response     
+    
+    def getUserSkills(self, user_id):
+        url = self.base + Woffu_Requests.user_skills
+        
+        print(">>User Skills: {}".format(user_id))
+        request = url.replace('[USER]',str(user_id))
+        response = self.doCurlAPI(request, None)
+            
+        if response is not None:
+                if (self.debug):
+                    helper.dump_json(response)
+        return response
+    
+    def getUserContract(self, user_id):
+        url = self.base + Woffu_Requests.user_contract
+        
+        print(">>User Contract: {}".format(user_id))
+        request = url.replace('{id}',str(user_id))
+        response = self.doCurlAPI(request, None)
+            
+        if response is not None:
+                if (self.debug):
+                    helper.dump_json(response)
+        return response     
+    

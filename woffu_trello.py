@@ -13,17 +13,20 @@ class Trello_Labelname:
 
 class Trello:
     
-    def __init__(self, config_key, config_secret, requests_board=None, config_proxy=None,  config_debug=False):
+    def __init__(self, tconfig,  config_debug=False, config_proxy=None):
         from trello import TrelloClient
-        if (config_proxy):
-            self.client = TrelloClient(api_key=config_key, api_secret=config_secret, proxies=config_proxy)
-        else: 
-            self.client = TrelloClient(api_key=config_key, api_secret=config_secret)
+        
+        self.client = TrelloClient(api_key=tconfig['tk'], api_secret=tconfig['ts'], proxies=config_proxy)
+        #if (config_proxy):
+        #    self.client = TrelloClient(api_key=tconfig['tk'], api_secret=tconfig['ts'], proxies=config_proxy)
+        #else: 
+        #    self.client = TrelloClient(api_key=config_key, api_secret=config_secret)
 
-        self.requests_board_id = requests_board
+        self.requests_board_id = tconfig['tboard']
         self.debug = config_debug
         self.board = None
         self.labels = None
+        self.motives = tconfig["requests"]
     
     def getAllboards(self):
         all_boards = self.client.list_boards()
@@ -108,39 +111,43 @@ class Trello:
                 company_id = user['CompanyId']
                 if (user['FirstName'] and user['LastName']):
                     user_name = str(user['FirstName']) + " " + str(user['LastName'])
-                    checklist_names.append("Nombre: " + user_name)
-                    checklist_states.append(True)
+                    #checklist_names.append("Nombre: " + user_name)
+                    #checklist_states.append(True)
                 else:          
                     if (user['FirstName'] or user['LastName']):
                         user_name = (str(user['FirstName']) if user['FirstName'] else "Vacío") + " " + (str(request['LastName']) if request['LastName'] else "Vacío")
-                        checklist_names.append("Nombre: " + user_name)
-                        checklist_states.append(False)
+                        #checklist_names.append("Nombre: " + user_name)
+                        #checklist_states.append(False)
                     else: 
                         user_name = 'Nombre trabajador vacío'
-                        checklist_names.append("Nombre: Vacío")
-                        checklist_states.append(False)  
+                        #checklist_names.append("Nombre: Vacío")
+                        #checklist_states.append(False)  
                     
             # User motive
+            # Comment: If we only consider selected Motives, then empty is no valid
             if (request['AgreementEventId'] is not None ):
                 motive = woffu.getAgreementEvent(request['AgreementEventId'])
-                if (motive['Name'] is not None ):
-                    checklist_names.append("Motivo: " + str(motive['Name']))
-                    checklist_states.append(True)
-                    label = self.getLabel(str(motive['Name']))
-                    if label is not None:
-                        labels.append(label)
-                    cardname_prefix = str(motive['Name']) + ': '
+                if (motive['Name'] in self.motives):
+                    if (motive['Name'] is not None ):
+                        checklist_names.append("Motivo: " + str(motive['Name']))
+                        checklist_states.append(True)
+                        label = self.getLabel(str(motive['Name']))
+                        if label is not None:
+                            labels.append(label)
+                        cardname_prefix = str(motive['Name']) + ': '
                 else:
-                    cardname_prefix = 'Motivo vacío: '
-                    checklist_names.append("Motivo: Vacío")
-                    checklist_states.append(False)
-            else:
-                cardname_prefix = 'Motivo vacío: '
-                checklist_names.append("Motivo: Vacío")
-                checklist_states.append(False)
+                    continue
+#                else:
+#                    cardname_prefix = 'Motivo vacío: '
+#                    checklist_names.append("Motivo: Vacío")
+#                    checklist_states.append(False)
+#            else:
+#                cardname_prefix = 'Motivo vacío: '
+#                checklist_names.append("Motivo: Vacío")
+#                checklist_states.append(False)
                     
             # Generate Card Name
-            card_name = ("[" + str(request['RequestId']) + "][" + str(woffu.getCompanyName(company_id)) + "] " + cardname_prefix + user_name)
+            card_name = ("[" + str(request['RequestId']) + "] [" + str(woffu.getCompanyName(company_id)) + "] " + cardname_prefix + user_name)
             if (self.isCardNameCreated(card_name)):
                 continue
             
@@ -160,6 +167,14 @@ class Trello:
                 checklist_names.append("Fecha Fin: Vacío")
                 checklist_states.append(False)                
             
+            # Comments = Description
+            if (request['QuickDescription'] is not None ):
+                checklist_names.append("Comentarios: " + str(request['QuickDescription']))
+                checklist_states.append(True)
+            else:
+                checklist_names.append("Comentarios: Vacío")
+                checklist_states.append(False)  
+                
             # Request document download
             # Warning: Docs is always NULL, even if request has documents
             # => Always checking
@@ -174,12 +189,32 @@ class Trello:
                     files.append(file)
                 if (self.debug):
                     print("Files: {} ".format(files))
+                if (files):
+                    fl = list()
+                    for f in files:
+                        fl.append(f['name'])
+                    checklist_names.append("Doc Adjunto: " + ', '.join(fl))
+                    checklist_states.append(True)
+                else:
+                    checklist_names.append("Doc Adjunto: Vacío")
+                    checklist_states.append(False)
+                    
             
             card = pending.add_card(name=card_name, desc=None, labels=labels, due=duedate, source=None, position=None, assign=None)
             card.add_checklist(checklist_title, checklist_names, checklist_states)
             if (len(files) > 0):
                 for f in files:
-                    card.attach(name=f['name'], mimeType=f['mime'], file=f['content'])
+                    if (int(f['length']) < 10485760):
+                        card.attach(name=f['name'], mimeType=f['mime'], file=f['content'])
+                    else:
+                        card.comment("El fichero " + f['name'] + " es demasiado pesado para adjuntar en Trello :( ")
+                    #try:
+                    #    card.attach(name=f['name'], mimeType=f['mime'], file=f['content'])
+                    #finally:
+                    #    
+                    #    card.comment("El fichero " + f['name'] + " es demasiado pesado para adjuntar en Trello :(")
+                        #return False
+        #            card.attach(name=f['name'], mimeType=f['mime'], file=f['content'])
             
             if (self.debug):
                 card.comment(str(request))
@@ -203,7 +238,18 @@ class Trello:
             checklist_title = ''
             cardname_prefix = ''       
             duedate = None
+
+            if (user['Active'] is False):
+                continue
             
+            # ID
+            if (user['UserId'] is not None ):
+                checklist_names.append("ID: " + str(user['UserId']))
+                checklist_states.append(True)
+            else:
+                checklist_names.append("ID: Vacío")
+                checklist_states.append(False)     
+                
             # User name
             if (user['FirstName'] and user['LastName']):
                 checklist_names.append("Nombre: " + str(user['FirstName']) + " " + str(user['LastName']))
@@ -226,55 +272,66 @@ class Trello:
                 
             # SSN: NAF
             if (user['SSN'] is not None ):
-                checklist_names.append("NAF: " + str(user['SSN']))
+                checklist_names.append("NSS: " + str(user['SSN']))
                 checklist_states.append(True)
             else:
-                checklist_names.append("NAF: Vacío")
+                checklist_names.append("NSS: Vacío")
                 checklist_states.append(False)
                 
             # Birthday
             if (user['Birthday'] is not None ):
-                checklist_names.append("Fecha de Nacimiento: " + str(user['Birthday']))
+                checklist_names.append("Fecha de Nacimiento: " + str(helper.getDateFormat(user['Birthday'])))
                 checklist_states.append(True)
             else:
                 checklist_names.append("Fecha de Nacimiento: Vacío")
                 checklist_states.append(False)
                 
-            # End date
-            if (user['EmployeeEndDate'] is not None ):
-                checklist_names.append("Fecha Fin: " + str(user['EmployeeEndDate']))
-                checklist_states.append(True)
-                label = self.getLabel("BAJA TRABAJADOR")
-                if label is not None:
-                    labels.append(label)
-                duedate = user['EmployeeEndDate']
-                checklist_title = "Checklist Baja Trabajador"
-                cardname_prefix = "Baja: "
-            else:
-                checklist_names.append("Fecha Inicio: Vacío")
-                checklist_states.append(False)
-
             # Start Date
             if (user['EmployeeStartDate'] is not None ):
-                checklist_names.append("Fecha Inicio: " + str(user['EmployeeStartDate']))
+                checklist_names.append("Fecha Inicio: " + str(helper.getDateFormat(user['EmployeeStartDate'])))
                 checklist_states.append(True)
                 if (datetime.datetime.strptime(user['EmployeeStartDate'], '%Y-%m-%dT%H:%M:%S.%f') > datetime.datetime.now()):
-                    label = self.getLabel("ALTA TRABAJADOR")
-                    if label is not None:
-                        labels.append(label)
+#                    label = self.getLabel("ALTA TRABAJADOR")
+#                    if label is not None:
+#                        labels.append(label)
                     duedate = user['EmployeeStartDate']
-                    if (duedate is not None):
-                        checklist_title = "Checklist Alta y Baja Trabajador"
-                        cardname_prefix = "Alta y Baja: "
-                    else:
-                        checklist_title = "Checklist Alta Trabajador"
-                        cardname_prefix = "Alta: "
+#                    if (duedate is not None):
+#                        checklist_title = "Checklist Alta y Baja Trabajador"
+#                        cardname_prefix = "Alta y Baja: "
+#                    else:
+                    checklist_title = "Checklist Alta Trabajador"
+                    cardname_prefix = "Alta usuario: "
+                elif (user['EmployeeEndDate'] is None):
+                    cardname_prefix = "Alta usuario: "
             else:
                 checklist_names.append("Fecha Inicio: Vacío")
-                checklist_states.append(False)                
+                checklist_states.append(False)      
+                
+            # End date
+            if (user['EmployeeEndDate'] is not None ):
+                checklist_names.append("Fecha Fin: " + str(helper.getDateFormat(user['EmployeeEndDate'])))
+                checklist_states.append(True)
+#                label = self.getLabel("BAJA TRABAJADOR")
+#                if label is not None:
+#                    labels.append(label)
+                if (duedate is not None):
+                    if (datetime.datetime.strptime(user['EmployeeStartDate'], '%Y-%m-%dT%H:%M:%S.%f') > datetime.datetime.now()):
+                        checklist_title = "Checklist Alta y Baja Trabajador"
+                        cardname_prefix = "Alta usuario: "
+                    else:
+                        duedate = user['EmployeeEndDate']                    
+                        checklist_title = "Checklist Baja Trabajador"
+                        cardname_prefix = "Baja usuario: "
+                else:
+                    duedate = user['EmployeeEndDate']                    
+                    checklist_title = "Checklist Baja Trabajador"
+                    cardname_prefix = "Baja usuario: "
+#            else:
+#                checklist_names.append("Fecha Fin: Vacío")
+#                checklist_states.append(False)
                 
             # Generate Card name
-            card_name = ("[" + str(user['UserId']) + "][" + str(woffu.getCompanyName(user['CompanyId'])) + "] " + cardname_prefix + str(user['FirstName']) + " " + str(user['LastName']))
+            card_name = ("[" + str(user['UserId']) + "] [" + str(woffu.getCompanyName(user['CompanyId'])) + "] " + cardname_prefix + str(user['FirstName']) + " " + str(user['LastName']))
             if (self.isCardNameCreated(card_name)):
                 continue
             
@@ -294,35 +351,47 @@ class Trello:
                 checklist_names.append("Cargo: Vacío")
                 checklist_states.append(False)
                 
-            # Bank account: avoided
-            if (None is not None ):
-                checklist_names.append("Cuenta Bancaria: " + str(user['JobTitleId']))
-                checklist_states.append(True)
-            else:
-                checklist_names.append("Cuenta Bancaria: Vacío")
-                checklist_states.append(False) 
-                
-            # Address: avoided
-            if (None is not None ):
-                checklist_names.append("Dirección Postal: " + str(user['JobTitleId']))
-                checklist_states.append(True)
-            else:
-                checklist_names.append("Dirección Postal: Vacío")
-                checklist_states.append(False) 
-
-            # Schedule
-            if ((user['ScheduleId'] is not None) or (user['InheredScheduleId'] is not None) ): #InheredScheduleId?
-                schedule_id = (user['ScheduleId'] if user['ScheduleId'] is not None else user['InheredScheduleId'])
-                schedule = woffu.getSchedule(schedule_id)
-                if (schedule['TimeFrame'] is not None ):
-                    checklist_names.append("Horario: " + str(schedule['TimeFrame']))
+            # Department
+            if (user['DepartmentId'] is not None ):
+                department = woffu.getDepartment(user['DepartmentId'])
+                if (department['Name'] is not None ):
+                    checklist_names.append("Departamento: " + str(department['Name']))
                     checklist_states.append(True)
                 else:
-                    checklist_names.append("Horario: Vacío")
-                    checklist_states.append(False) 
+                    checklist_names.append("Departamento: Vacío")
+                    checklist_states.append(False)
             else:
-                checklist_names.append("Horario: Vacío")
-                checklist_states.append(False) 
+                checklist_names.append("Departamento: Vacío")
+                checklist_states.append(False)
+                
+            # Office
+            if (user['OfficeId'] is not None ):
+                office = woffu.getOffice(user['OfficeId'])
+                if (office['Name'] is not None ):
+                    checklist_names.append("Centro de Trabajo: " + str(office['Name']))
+                    checklist_states.append(True)
+                else:
+                    checklist_names.append("Centro de Trabajo: Vacío")
+                    checklist_states.append(False)
+            else:
+                checklist_names.append("Centro de Trabajo: Vacío")
+                checklist_states.append(False)
+                
+#            # Bank account: avoided
+#            if (None is not None ):
+#                checklist_names.append("Cuenta Bancaria: " + str(user['JobTitleId']))
+#                checklist_states.append(True)
+#            else:
+#                checklist_names.append("Cuenta Bancaria: Vacío")
+#                checklist_states.append(False) 
+#                
+#            # Address: avoided
+#            if (None is not None ):
+#                checklist_names.append("Dirección Postal: " + str(user['JobTitleId']))
+#                checklist_states.append(True)
+#            else:
+#                checklist_names.append("Dirección Postal: Vacío")
+#                checklist_states.append(False) 
 
             # E-mail
             if (user['Email'] is not None ):
@@ -331,27 +400,104 @@ class Trello:
             else:
                 checklist_names.append("E-mail: Vacío")
                 checklist_states.append(False) 
-                
-            # Salary
-            if (None is not None ):
-                checklist_names.append("Salario: " + str(user['Email']))
-                checklist_states.append(True)
+
+            # Responsable
+            if (user['ResponsibleUserId'] is not None ):
+                responsible = woffu.getUser(user['ResponsibleUserId'])
+                if (responsible['FirstName'] is not None ):
+                    checklist_names.append("Responsable: " + str(responsible['FirstName'] + " " + responsible['LastName']))
+                    checklist_states.append(True)
+                else:
+                    checklist_names.append("Responsable: Vacío")
+                    checklist_states.append(False)
             else:
-                checklist_names.append("Salario: Vacío")
-                checklist_states.append(False) 
+                checklist_names.append("Responsable: Vacío")
+                checklist_states.append(False)
                 
+            # Supervisor
+            if (user['AuthorizingUserId'] is not None ):
+                responsible = woffu.getUser(user['AuthorizingUserId'])
+                if (responsible['FirstName'] is not None ):
+                    checklist_names.append("Supervisor: " + str(responsible['FirstName'] + " " + responsible['LastName']))
+                    checklist_states.append(True)
+                else:
+                    checklist_names.append("Supervisor: Vacío")
+                    checklist_states.append(False)
+            else:
+                checklist_names.append("Supervisor: Vacío")
+                checklist_states.append(False)  
+                
+            # Attributes
+            user_attributes = woffu.getUserAttributes(user['UserId'])
+            if (user_attributes):
+                #checklist_names.append("Atributos: " + str(responsible['FirstName'] + " " + responsible['LastName']))
+                #checklist_states.append(True)
+                for s in user_attributes:
+                    checklist_names.append(s['Name'] + ": " + str(s['Value'] if s['Value'] is not None else 'Vacío' ))
+                    checklist_states.append(True if s['Value'] is not None else False)                
+            else:
+                checklist_names.append("Atributos (telf, dirección, etc): Vacío")
+                checklist_states.append(False)
+
+            # Skills
+            user_skills = woffu.getUserSkills(user['UserId'])
+            if (user_skills):
+                #checklist_names.append("Habilidades: " + str(responsible['FirstName'] + " " + responsible['LastName']))
+                #checklist_names.append("Habilidades: Sí que tiene :)")
+                #checklist_states.append(True)
+                for s in user_skills:
+                    checklist_names.append(s['Name'] + ": " + str(s['Value'] if s['Value'] is not None else 'Vacío' ))
+                    checklist_states.append(True)
+                
+            else:
+                checklist_names.append("Habilidades: Vacío")
+                checklist_states.append(False)                  
+                
+#            # Salary
+#            if (None is not None ):
+#                checklist_names.append("Salario: " + str(user['Email']))
+#                checklist_states.append(True)
+#            else:
+#                checklist_names.append("Salario: Vacío")
+#                checklist_states.append(False) 
+              
+            # Schedule
+            if ((user['ScheduleId'] is not None) or (user['InheredScheduleId'] is not None) ): #InheredScheduleId?
+                schedule_id = (user['ScheduleId'] if user['ScheduleId'] is not None else user['InheredScheduleId'])
+                schedule = woffu.getSchedule(schedule_id)
+                if (schedule['Name'] is not None ): #'TimeFrame'
+                    checklist_names.append("Horario: " + str(schedule['Name']))
+                    checklist_states.append(True)
+                else:
+                    checklist_names.append("Horario: Vacío")
+                    checklist_states.append(False) 
+            else:
+                checklist_names.append("Horario: Vacío")
+                checklist_states.append(False) 
+
+                
+            user_contract = woffu.getUserContract(user['UserId'])
             # User contract
-            if (None is not None ):
-                checklist_names.append("Tipo Contrato: " + str(user['Email']))
+            if (user_contract):
+                checklist_names.append("Tipo Contrato: " + str(user_contract["ContractTypeName"].split("_ContractType_",1)[1]))
                 checklist_states.append(True)
+                checklist_names.append("Modalidad: " + str(user_contract["ContractModalityName"].split("_ContractModality_",1)[1]))
+                checklist_states.append(True)                
             else:
                 checklist_names.append("Tipo Contrato: Vacío")
-                checklist_states.append(False) 
-                
+                checklist_states.append(False)
+                checklist_names.append("Modalidad: Vacío")
+                checklist_states.append(False)                 
+
+
             card = pending.add_card(name=card_name, desc=None, labels=labels, due=duedate, source=None, position=None, assign=None)
             card.add_checklist(checklist_title, checklist_names, checklist_states)
             if (self.debug):
                 card.comment(str(user))
+                if (user_attributes):
+                    card.comment(str(user_attributes))
+                if (user_skills):
+                    card.comment(str(user_skills))
         
         if (self.debug):
             pending_cards = pending.list_cards()
