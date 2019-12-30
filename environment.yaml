@@ -1,0 +1,12 @@
+demo:
+    wu: [your woffu endpoint]
+    wk: [your woffu key]
+    tk: [your trello key]
+    ts: [your trello secret]
+    tboard: [your trello board]
+prod:
+    wu: [your woffu endpoint]
+    wk: [your woffu key]
+    tk: [your trello key]
+    ts: [your trello secret]
+    tboard: [your trello board]    
